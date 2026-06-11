@@ -1,0 +1,979 @@
+---
+title: "STAT 218 Final Project"
+author: "Linlin Liu"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Data Preprocessing
+
+```{r}
+# load datasets
+patient <- read.delim("data_clinical_patient.txt", skip = 4)
+sample <- read.delim("data_clinical_sample.txt", skip = 4)
+
+# merge the two above to create a richer dataset 
+merged <- merge(patient, sample, by = "PATIENT_ID", all.x = TRUE)
+
+# create new columns for survival data
+merged$EVENT <- ifelse(grepl("DECEASED", merged$OS_STATUS), 1, 0)
+merged$TIME <- merged$OS_MONTHS
+
+# keep only useful vars
+clean <- merged[, c("PATIENT_ID",
+                    "TIME",
+                    "EVENT",
+                    "AGE",
+                    "SEX",
+                    "SUBTYPE",
+                    "RACE",
+                    "ETHNICITY",
+                    "GRADE",
+                    "TUMOR_TYPE",
+                    "RADIATION_THERAPY",
+                    "MSI_SCORE_MANTIS",
+                    "MSI_SENSOR_SCORE",
+                    "ANEUPLOIDY_SCORE",
+                    "PFS_STATUS",
+                    "PFS_MONTHS",
+                    "TMB_NONSYNONYMOUS")]
+
+colSums(is.na(clean)) # number of NAs by var
+clean <- na.omit(clean) # remove rows with NAs
+
+colSums(clean == "", na.rm = TRUE) # number of empty cells by var
+clean[clean == ""] <- NA # fill empty cells with NAs
+
+# record missing cells as unknown to keep all data
+clean$SUBTYPE[is.na(clean$SUBTYPE)] <- "Unknown"
+clean$RACE[is.na(clean$RACE)] <- "Unknown"
+clean$ETHNICITY[is.na(clean$ETHNICITY)] <- "Unknown"
+clean$RADIATION_THERAPY[is.na(clean$RADIATION_THERAPY)] <- "Unknown"
+
+# save new csv 
+colnames(clean) <- tolower(colnames(clean))
+write.csv(clean, "clean.csv", row.names = FALSE)
+```
+
+# EDA
+
+```{r}
+# load the cleaned dataset
+clean <- read.csv("clean.csv")
+str(clean)
+
+# identify numerical vars
+num_vars <- c("time",
+              "event",
+              "age",
+              "msi_score_mantis",
+              "msi_sensor_score",
+              "aneuploidy_score",
+              "pfs_months",
+              "tmb_nonsynonymous")
+
+# identify categorical vars
+cat_vars <- c("sex",
+              "subtype",
+              "race",
+              "ethnicity",
+              "grade",
+              "tumor_type",
+              "radiation_therapy",
+              "pfs_status")
+
+clean[num_vars] <- lapply(clean[num_vars], as.numeric) # convert numeric vars
+clean[cat_vars] <- lapply(clean[cat_vars], as.factor) # convert categorical vars
+
+# check event distribution
+table(clean$event)
+```
+
+```{r, message=FALSE, warning=FALSE}
+library(survival)
+library(survminer)
+library(ggplot2)
+library(dplyr)
+library(corrplot)
+```
+
+## Cohort characteristics
+
+```{r}
+# sample size
+nrow(clean)
+
+# demographics
+summary(clean$age)
+table(clean$sex)
+table(clean$race)
+table(clean$ethnicity)
+
+# frequency tables
+table(clean$subtype)
+table(clean$grade)
+table(clean$tumor_type)
+```
+
+A sample size of 501 is an excellent sample size. It has adequate power,
+sufficient subgroup analysis, feasible multivariable Cox models, and enough
+events (about 125 deaths).
+
+There is a broad age range. Relatively young cohort overall. Slight right skew
+(mean > median). Lower-grade glioma often affects younger adults relative to
+aggressive glioblastoma. Modeling implication: Age is likely an important
+prognostic variable, continuous predictor, and potential confounder. Should
+almost certainly include age in all major models.
+
+Fairly balanced sex distribution: ~56% male and ~44% female. Modeling
+implication: Sex can reasonably be explored as covariate, potential confounder,
+and possibly subgroup variable.
+
+Cohort is overwhelmingly White. Implications: It reflects TCGA composition, but
+with limited racial diversity, race-based survival comparisons may be
+underpowered, and generalizability may be reduced. In conclusion, race may be
+included descriptively, but likely not as a major analytic focus.
+
+Limited diversity. Use mainly as descriptive covariate.
+
+Strong subtype heterogeneity: Multiple clinically meaningful molecular groups,
+balanced enough for subgroup survival analyses. Why this matters: Subtype is
+likely central to prognosis and directly supports your research question.
+Modeling implication: Subtype should be: Major predictor, primary KM stratifier,
+and core Cox variable.
+
+Very balanced grades: Excellent for comparing grade effects, strong prognostic
+candidate. Modeling implication: Grade should almost certainly be included.
+
+Diverse histologic composition: Good heterogeneity, clinically relevant.
+Potential use: Could be included if not overly collinear with subtype.
+
+The cohort upports: Clinical survival modeling, molecular prognostic analyses,
+multivariable Cox PH, and comparative subgroup analyses.
+
+Strongest predictors suggested by EDA: Likely: Age, grade, molecular subtype,
+aneuploidy, and TMB. Secondary variables: Potential: Sex, radiation, and tumor
+type. Less central: Mainly descriptive: Race and ethnicity.
+
+The cohort included 501 lower-grade glioma patients with broad age distribution
+(median age 41 years), balanced sex representation, and substantial molecular
+and histologic heterogeneity. Molecular subtype distributions were well
+represented across IDH-mutant and IDH-wildtype groups, supporting detailed
+prognostic analyses. Tumor grades were similarly balanced between Grade II and
+Grade III disease. These characteristics suggest sufficient cohort diversity to
+evaluate both traditional clinical and molecular predictors of survival.
+
+## Survival outcomes
+
+```{r}
+# create survival object
+surv_obj <- Surv(clean$time, clean$event)
+
+# overall KM
+km_fit <- survfit(surv_obj ~ 1)
+
+# create plot
+(p1 <- ggsurvplot(km_fit,
+                  data = clean,
+                  title = "Overall Survival Curve",
+                  xlab = "Months",
+                  ylab = "Survival Probability"))
+
+# save plot 
+ggsave(filename = "overall_km.png",
+       plot = p1$plot,
+       width = 7,
+       height = 5,
+       dpi = 300)
+
+# median survival
+summary(km_fit)$table["median"]
+
+# event proportions
+table(clean$event)
+```
+
+The survival curve declines gradually over time: Survival starts near 100%,
+declines steadily, bbout 50% survival occurs around ~80 months, and long
+survival tail extending beyond 150 months. This suggests: Lower-grade glioma
+patients generally have relatively prolonged survival, considerable
+heterogeneity in prognosis, meaningful censoring, and enough events for Cox
+modeling. 
+
+Median overall survival is about 80 months. This means half of patients are
+estimated to survive longer than approximately 80 months. This suggests that
+LGG is slower progressing than high-grade gliomas, which matches known biology
+and supports dataset validity.
+
+Advantages of event proportions: Adequate number of events for survival
+modeling, right censoring appropriate for KM/Cox, and longitudinal follow-up
+available. Because censoring is relatively high: Later survival estimates have
+wider uncertainty, tail of KM curve less stable, and confidence intervals widen
+substantially. 
+
+Confidence interval widening toward later months: Fewer patients remain at risk
+and wider shaded region. Tihs means late-stage survival estimates are less
+precise. This is expected and normal.
+
+Do genomic instability measures improve prediction beyond clinical factors?
+This EDA supports: Survival variability exists, sufficient events, long
+follow-up, opportunity for prognostic stratification, and Cox PH likely
+appropriate.
+
+Kaplan-Meier analysis demonstrated gradual decline in overall survival among
+TCGA lower-grade glioma patients, with an estimated median survival of
+approximately 80 months. Approximately 25% of patients experienced death during
+follow-up, while 75% were censored, indicating substantial follow-up duration
+with moderate right censoring. The observed heterogeneity in survival supports
+further investigation of both clinical and molecular predictors of prognosis.
+
+## Clinical predictors
+
+```{r}
+# KM by subtype
+(p2 <- ggsurvplot(survfit(surv_obj ~ subtype, data = clean),
+                  data = clean,
+                  title = "Survival by Molecular Subtype",
+                  legend = "bottom",
+                  legend.title = "Subtype",
+                  legend.labs = c("IDHmut-codel",
+                                  "IDHmut-non-codel",
+                                  "IDHwt",
+                                  "Unknown")))
+
+# save plot 
+ggsave(filename = "subtype_km.png",
+       plot = p2$plot,
+       width = 7,
+       height = 5,
+       dpi = 300)
+
+# KM by grade
+(p3 <- ggsurvplot(survfit(surv_obj ~ grade, data = clean),
+                  data = clean,
+                  title = "Survival by Tumor Grade",
+                  legend = "bottom",
+                  legend.title = "Grade",
+                  legend.labs = c("Grade 2", "Grade 3")))
+
+# save plot 
+ggsave(filename = "grade_km.png",
+       plot = p3$plot,
+       width = 7,
+       height = 5,
+       dpi = 300)
+
+# KM by radiation therapy
+(p4 <- ggsurvplot(survfit(surv_obj ~ radiation_therapy, data = clean),
+                  data = clean,
+                  title = "Survival by Radiation Therapy",
+                  legend = "bottom",
+                  legend.title = "Radiation Therapy",
+                  legend.labs = c("No", "Unknown", "Yes")))
+
+# save plot 
+ggsave(filename = "rad_km.png",
+       plot = p4$plot,
+       width = 7,
+       height = 5,
+       dpi = 300)
+
+# age by event
+(p5 <- ggplot(clean, aes(x = factor(event), y = age)) +
+    geom_boxplot() +
+    labs(
+      title = "Age by Survival Status",
+      x = "Event",
+      y = "Age") +
+    scale_x_discrete(labels = c("0" = "Alive", "1" = "Deceased")))
+
+# save plot 
+ggsave(filename = "age_event.png",
+       plot = p5,
+       width = 7,
+       height = 5,
+       dpi = 300)
+```
+
+Deceased patients are clearly older: Higher median age, higher upper quartile,
+broader age range. Interpretation: Strong evidence that: Older age is
+associated with worse survival. Modeling implication: Age should be: Included
+as a core continuous predictor, likely highly significant, and potential
+confounder.
+
+Grade 2: Substantially better survival, slower decline, and longer median
+survival. Grade 3: Worse prognosis, faster survival decline, and earlier
+mortality. Interpretation: Strong grade-based prognostic separation. Modeling
+implication: Grade is clearly: Clinically meaningful, strong survival predictor,
+and essential Cox covariate.
+
+“No radiation” appears to have better survival than “Yes radiation.” Important
+caution: This likely reflects: Confounding by indication: Patients receiving
+radiation may have: More aggressive disease, worse baseline prognosis, higher
+grade tumors. Interpretation: Radiation should NOT be interpreted causally from
+raw KM alone. Modeling implication: Radiation therapy: Useful covariate, may
+reflect disease severity, should be adjusted in multivariable models, and could
+lose significance after adjustment.
+
+Clear separation: IDHmut-codel → Best prognosis, IDHmut-non-codel → Intermediate,
+IDHwt → Worst prognosis, and Unknown → Sparse. This is extremely important.
+Subtype appears to be one of the strongest predictors. Interpretation:
+Molecular subtype strongly stratifies survival. Clinical significance: This
+directly supports research question about molecular predictors. Modeling
+implication: Subtype should be: Central predictor, major KM variable, and core
+multivariable Cox term.
+
+Exploratory analyses identified substantial survival heterogeneity across key
+clinical predictors. Older age was associated with mortality, supporting age as
+an important prognostic factor. Grade III tumors demonstrated significantly
+poorer survival than Grade II tumors, consistent with established clinical
+expectations. Molecular subtype strongly stratified outcomes, with IDH-wildtype
+tumors exhibiting markedly worse prognosis and IDH-mutant codel tumors
+demonstrating the most favorable survival. Radiation therapy showed apparent
+survival differences, though this likely reflects treatment selection bias and
+underlying disease severity.
+
+## Molecular predictors
+
+```{r}
+# aneuploidy histogram
+(p6 <- ggplot(clean,
+              aes(x = aneuploidy_score)) +
+   geom_histogram(bins = 30,
+                  color = "white") +
+   labs(title = "Distribution of Aneuploidy Score",
+        x = "Aneuploidy Score",
+        y = "Count"))
+
+# save plot
+ggsave(filename = "aneu_hist.png",
+       plot = p6,
+       width = 7,
+       height = 5,
+       dpi = 300)
+
+# boxplot aneuploidy by event
+(p7 <- ggplot(clean,
+              aes(x = factor(event), y = aneuploidy_score)) +
+    geom_boxplot() +
+    labs(title = "Aneuploidy Score by Survival Status",
+         x = "Event",
+         y = "Aneuploidy Score"))
+
+# save plot
+ggsave(filename = "aneu_event.png",
+       plot = p7,
+       width = 7,
+       height = 5,
+       dpi = 300)
+
+# create high vs. low aneuploidy
+clean$aneuploidy_group <- ifelse(
+  clean$aneuploidy_score > median(clean$aneuploidy_score, na.rm = TRUE),
+  "High", "Low")
+
+clean$aneuploidy_group <- as.factor(clean$aneuploidy_group)
+
+# KM high vs. low aneuploidy
+(p8 <- ggsurvplot(survfit(surv_obj ~ aneuploidy_group, data = clean),
+                  data = clean,
+                  title = "Survival by Aneuploidy Burden"))
+
+# save plot
+ggsave(filename = "anue_km.png",
+       plot = p8$plot,
+       width = 7,
+       height = 5,
+       dpi = 300)
+```
+
+Aneuploidy appears to be a clinically meaningful prognostic biomarker in this
+cohort. This is excellent because it directly strengthens the primary project
+aim: Do genomic instability measures improve prediction beyond standard
+clinical factors?
+
+The histogram shows: Strong right skew, most patients have relatively low
+aneuploidy burden, a subset has very high genomic instability, and several
+extreme outliers. Interpretation: This suggests: Genomic instability varies
+meaningfully across patients, aneuploidy is heterogeneous, there is sufficient
+variation for prognostic modeling, high-burden patients may represent
+biologically aggressive disease. Modeling implication: Aneuploidy should likely
+be: Included as continuous predictor, potentially categorized (high vs low), 
+and possibly log-transformed or sensitivity-tested.
+
+Aneuploidy by survival status: Deceased patients: Higher median aneuploidy,
+higher IQR, more extreme values, and broader distribution. Alive patients:
+Lower median burden and ower central tendency. Strong evidence that: Higher
+aneuploidy burden is associated with mortality. Biological implication: This
+supports the hypothesis that genomic instability may worsen prognosis. Modeling
+implication: Aneuploidy is likely: Prognostic, independent candidate predictor,
+and important extension beyond traditional clinical variables.
+
+Survival by high vs low aneuploidy burden: Findings: High aneuploidy: Steeper
+decline, lower survival probabilities, earlier mortality. Low aneuploidy:
+Better survival, longer-term survival advantage. Interpretation: Clear survival
+separation. This is perhaps the strongest evidence from molecular EDA. Clinical
+meaning: Patients with elevated genomic instability experience substantially
+poorer outcomes. Research significance: This strongly justifies: Extended
+molecular survival models. Suggested hypothesis support: H0: Aneuploidy does
+not improve prognostic prediction. H1: Higher aneuploidy is associated with
+worse survival independent of clinical predictors. EDA strongly favors H1.
+Strength of evidence: Molecular EDA suggests: Very plausible: Aneuploidy is
+prognostically relevant, survival differs substantially by burden, and
+biomarker integration is justified.
+
+Aneuploidy score demonstrated substantial heterogeneity across the cohort, with
+a right-skewed distribution and a subset of patients exhibiting markedly
+elevated genomic instability. Patients who experienced death had higher
+aneuploidy scores than censored survivors, suggesting greater genomic burden
+among poorer-outcome cases. Kaplan–Meier analyses further demonstrated
+significantly worse survival among patients with high aneuploidy burden,
+supporting aneuploidy as a potentially important molecular prognostic factor.
+
+## Modeling implications
+
+```{r}
+# tmb distribution
+(p9 <- ggplot(clean,
+              aes(x = tmb_nonsynonymous)) +
+   geom_histogram(bins = 30, 
+                  color = "white")  +
+   labs(title = "Distribution of Tumor Mutation Burden",
+        x = "TMB",
+        y = "Count"))
+
+# save plot
+ggsave(filename = "tmb_hist.png",
+       plot = p9,
+       width = 7,
+       height = 5,
+       dpi = 300)
+
+# corr analysis
+genomic_vars <- clean[, c("aneuploidy_score",
+                          "tmb_nonsynonymous",
+                          "msi_score_mantis",
+                          "msi_sensor_score")]
+
+cor_matrix <- cor(genomic_vars, use = "complete.obs")
+
+corrplot(cor_matrix,
+         method = "color",
+         type = "upper",
+         tl.col = "black",
+         tl.cex = 0.8, # smaller labels
+         cl.cex = 0.7, # smaller color scale labels
+         mar = c(0, 0, 2, 0), # more room for title
+         title = "Correlation of Genomic Variables")
+
+# save plot
+png("corr.png",
+    width = 7,
+    height = 5,
+    units = "in",
+    res = 300)
+
+corrplot(cor_matrix,
+         method = "color",
+         type = "upper",
+         tl.col = "black",
+         tl.cex = 0.8, # smaller labels
+         cl.cex = 0.7, # smaller color scale labels
+         mar = c(0, 0, 2, 0), # more room for title
+         title = "Correlation of Genomic Variables")
+
+dev.off()
+```
+
+Tumor Mutation Burden (TMB) distribution: Findings: Extremely right-skewed:
+Vast majority of patients have very low TMB, one or very few extreme outliers,
+distribution heavily concentrated near zero, and potential influential
+observations. Interpretation: Raw TMB is problematic as-is. Issues: Severe
+skewness, outliers may dominate estimates, linear Cox assumptions may be
+violated, hazard ratio estimates could be unstable, and interpretation
+difficult. Modeling implication: Recommended: Log transformation, categorize
+high vs low TMB, quartiles, or sensitivity analysis excluding outliers.
+Practical advice: TMB may still be useful, but requires preprocessing before
+serious modeling.
+
+Major observations: Aneuploidy: Weak correlation with other markers. TMB:
+Moderate correlation with MSI measures. MSI score mantis & MSI sensor: Strong
+correlation. Interpretation: Good news: Aneuploidy provides distinct genomic
+information. This is excellent because it suggests: Aneuploidy likely
+contributes independent prognostic information. Caution: MSI metrics may be
+redundant: Including both msi_score_mantis and msi_sensor_score may introduce:
+Multicollinearity, redundant information, inflated SEs. Modeling implication:
+Better to: Choose one MSI measure, not both. Research question implications:
+EDA suggests: Strong support: Aneuploidy likely useful, TMB potentially useful
+with transformation, MSI should be simplified, and clinical + molecular model
+is feasible.
+
+Tumor mutation burden exhibited extreme right-skewness with several influential
+outliers, suggesting that transformation or categorization may be necessary
+prior to modeling. Correlation analyses indicated that aneuploidy score was
+relatively independent of other genomic variables, supporting its role as a
+distinct molecular predictor. In contrast, MSI-related variables demonstrated
+moderate-to-strong intercorrelation, suggesting potential redundancy. Overall,
+exploratory analyses support the feasibility of extending traditional clinical
+survival models with selected molecular predictors, particularly aneuploidy
+burden.
+
+# Modeling
+
+## Univariate Cox models
+
+### Data preparation
+
+```{r}
+# create temperate dataset for modeling with desired vars
+temp <- clean %>%
+  select(time, event, age, sex, subtype, grade, tumor_type, radiation_therapy,
+         msi_score_mantis, aneuploidy_score, tmb_nonsynonymous)
+
+# make sure categorical vars are factors and continuous vars are numerics
+str(temp)
+```
+
+```{r}
+# model without tmb
+cox_no_tmb <- coxph(surv_obj ~ age + sex + grade + subtype + radiation_therapy +
+                      tumor_type + aneuploidy_score + msi_score_mantis,
+                    data = temp)
+
+# get martingale residuals
+temp$mart_resid <- residuals(cox_no_tmb, type = "martingale")
+
+# plot residuals vs. tmb
+ggplot(temp,
+       aes(x = tmb_nonsynonymous, y = mart_resid)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "loess", se = TRUE) +
+  labs(title = "Martingale Residuals vs. TMB",
+       x = "Tumor Mutation Burden",
+       y = "Martingale Residuals")
+```
+
+The martingale residual plot against raw TMB was difficult to interpret because
+TMB was extremely right-skewed and dominated by a few large outliers. This
+suggested that raw continuous TMB was not appropriate as a simple linear Cox 
+ovariate.
+
+```{r}
+# log(tmb + 1)
+temp$log_tmb <- log(temp$tmb_nonsynonymous + 1)
+
+ggplot(temp,
+       aes(x = log_tmb, y = mart_resid)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "loess", se = TRUE) +
+  labs(title = "Martingale Residuals vs. log(TMB + 1)",
+       x = "log(TMB + 1)",
+       y= "Martingale Residuals")
+```
+
+The log-transformed TMB plot improved the scale, but the smoothed relationship
+was still nonlinear and uncertain at higher TMB values. Therefore, I used TMB
+quartiles as a more interpretable and robust representation.
+
+```{r}
+# quartile tmb
+temp$tmb_quart <- cut(temp$tmb_nonsynonymous,
+                      breaks = quantile(clean$tmb_nonsynonymous,
+                                        probs = seq(0, 1, 0.25),
+                                        na.rm = TRUE),
+                      include.lowest = TRUE)
+
+ggplot(temp,
+       aes(x = tmb_quart, y = mart_resid)) +
+  geom_boxplot() +
+  geom_jitter(width = 0.15, alpha = 0.3) +
+  labs(title = "Martingale Residuals by TMB Quartile",
+       x = "Quartile TMB",
+       y = "Martingale Residuals")
+```
+
+The first three quartiles look fairly similar and centered close to 0. The
+highest TMB quartile has a wider spread and more extreme residuals. This
+suggests that the highest TMB group may contain more heterogeneous or
+influential patients. This supports the idea that raw continuous TMB is
+difficult to model directly because the high end behaves differently and
+contains extreme values.
+
+```{r}
+# model with log(tmb + 1)
+cox_log_tmb <- coxph(surv_obj ~ age + sex + grade + subtype + 
+                       radiation_therapy + tumor_type + aneuploidy_score + 
+                       msi_score_mantis + log_tmb,
+                     data = temp)
+
+# model with quartile tmb
+cox_quart_tmb <- coxph(surv_obj ~ age + sex + grade + subtype + 
+                         radiation_therapy + tumor_type + aneuploidy_score +
+                         msi_score_mantis + tmb_quart,
+                       data = temp)
+
+# compare the three models
+AIC(cox_no_tmb, cox_log_tmb, cox_quart_tmb)
+BIC(cox_no_tmb, cox_log_tmb, cox_quart_tmb)
+```
+
+TMB was originally continuous and highly right-skewed. Martingale residual
+plots suggested that raw TMB was difficult to model linearly. A log
+transformation improved interpretability of the scale, and AIC values were very
+similar across the no-TMB, log-TMB, and quartile-TMB models. Although BIC
+penalized the quartile model because it used more parameters, quartiles were
+used for interpretability and to avoid assuming a linear effect of highly
+skewed TMB.
+
+```{r}
+# categorize tmb using quartiles
+clean$tmb_quart <- cut(clean$tmb_nonsynonymous,
+                       breaks = quantile(clean$tmb_nonsynonymous,
+                                         probs = seq(0, 1, 0.25),
+                                         na.rm = TRUE),
+                       include.lowest = TRUE)
+
+# frequency table to check the dist again
+table(clean$tmb_quart)
+```
+
+```{r}
+# create clean dataset for modeling with desired vars
+mod <- clean %>%
+  select(time, event, age, sex, subtype, grade, tumor_type, radiation_therapy,
+         msi_score_mantis, aneuploidy_score, tmb_quart)
+
+# make sure categorical vars are factors and continuous vars are numerics
+str(mod)
+```
+
+```{r}
+# survival object
+surv_obj <- Surv(mod$time, mod$event)
+
+# test each variable separately
+cox_age <- coxph(surv_obj ~ age, data = mod)
+cox_sex <- coxph(surv_obj ~ sex, data = mod)
+cox_subtype <- coxph(surv_obj ~ subtype, data = mod)
+cox_grade <- coxph(surv_obj ~ grade, data = mod)
+cox_tumor <- coxph(surv_obj ~ tumor_type, data = mod)
+cox_rad <- coxph(surv_obj ~ radiation_therapy, data = mod)
+cox_msi <- coxph(surv_obj ~ msi_score_mantis, data = mod)
+cox_aneu_score <- coxph(surv_obj ~ aneuploidy_score, data = mod)
+cox_tmb <- coxph(surv_obj ~ tmb_quart, data = mod)
+
+summary(cox_age)
+summary(cox_sex)
+summary(cox_subtype)
+summary(cox_grade)
+summary(cox_tumor)
+summary(cox_rad)
+summary(cox_msi)
+summary(cox_aneu_score)
+summary(cox_tmb)
+```
+
+## Clinical Cox model
+
+```{r}
+# use subtype
+cox_clinical1 <- coxph(surv_obj ~ age + sex + subtype + grade + radiation_therapy,
+                      data = mod)
+summary(cox_clinical1)
+
+# use tumor type
+cox_clinical2 <- coxph(surv_obj ~ age + sex + tumor_type + grade + radiation_therapy,
+                       data = mod)
+summary(cox_clinical2)
+```
+
+### Model comparison
+
+```{r}
+anova(cox_clinical1, cox_clinical2)
+
+AIC(cox_clinical1, cox_clinical2)
+BIC(cox_clinical1, cox_clinical2)
+
+summary(cox_clinical1)$concordance
+summary(cox_clinical2)$concordance
+```
+
+## Clinical + molecular Cox model 1
+
+```{r}
+cox_cli_mol <- coxph(surv_obj ~ age + sex + grade + subtype + radiation_therapy +
+                       aneuploidy_score + tmb_quart + msi_score_mantis, data = mod)
+
+summary(cox_cli_mol)
+```
+
+### Model comparison
+
+```{r}
+anova(cox_clinical1, cox_cli_mol, test = "LRT")
+
+AIC(cox_clinical1, cox_cli_mol)
+BIC(cox_clinical1, cox_cli_mol)
+
+summary(cox_clinical1)$concordance
+summary(cox_cli_mol)$concordance
+```
+
+## Clinical + molecular Cox model 2
+
+```{r}
+# remove non-sig vars and compare again
+cox_cli_mol2 <- coxph(surv_obj ~ age + grade + subtype + tmb_quart + 
+                        msi_score_mantis, data = mod)
+
+summary(cox_cli_mol2)
+```
+
+### Model comparison
+
+```{r}
+anova(cox_cli_mol2, cox_cli_mol, test = "LRT")
+
+AIC(cox_cli_mol2, cox_cli_mol)
+BIC(cox_cli_mol2, cox_cli_mol)
+
+summary(cox_clinical2)$concordance
+summary(cox_cli_mol)$concordance
+```
+
+```{r}
+anova(cox_clinical1, cox_cli_mol2)
+
+AIC(cox_clinical1, cox_cli_mol2)
+BIC(cox_clinical1, cox_cli_mol2)
+
+summary(cox_clinical1)$concordance
+summary(cox_cli_mol2)$concordance
+```
+
+The reduced clinical + molecular model was preferred over the full clinical +
+molecular model because removing sex, radiation therapy, and aneuploidy score
+did not significantly worsen model fit by the likelihood ratio test, and the
+reduced model had lower AIC and BIC. Compared with the clinical-only model, the
+reduced clinical+molecular model also had lower AIC and BIC, suggesting
+improved overall model fit. However, the clinical-only model had a slightly
+higher concordance index, so the reduced model was mainly preferred based on
+parsimony and information criteria rather than discrimination alone.
+
+## Proportional hazards diagnostics
+
+```{r}
+(ph_clinical <- cox.zph(cox_cli_mol2))
+plot(ph_clinical)
+
+# show global and per-variable p-values
+print(ph_clinical) 
+```
+
+## Sensitivity Analysis
+
+### Time-varying MSI effect
+
+```{r}
+cox_cli_mol3 <- coxph(surv_obj ~ age + grade + subtype + tmb_quart +
+                        msi_score_mantis + tt(msi_score_mantis),
+                      data = mod,
+                      tt = function(x, t, ...) x * log(t))
+summary(cox_cli_mol3)
+
+AIC(cox_cli_mol2, cox_cli_mol3)
+BIC(cox_cli_mol2, cox_cli_mol3)
+
+summary(cox_cli_mol2)$concordance
+summary(cox_cli_mol3)$concordance
+```
+
+Adding a time-varying MSI effect improved AIC/BIC, and the time-varying term
+was significant. This suggests that the MSI effect may change over time.
+
+### Log-transform TMB
+
+```{r}
+mod$tmb_log <- log(clean$tmb_nonsynonymous + 1)
+
+cox_cli_mol4 <- coxph(surv_obj ~ age + grade + subtype + tmb_log +
+                        msi_score_mantis,
+                      data = mod)
+summary(cox_cli_mol4)
+
+AIC(cox_cli_mol2, cox_cli_mol4)
+BIC(cox_cli_mol2, cox_cli_mol4)
+
+summary(cox_cli_mol2)$concordance
+summary(cox_cli_mol4)$concordance
+```
+
+When TMB was modeled continuously using log-transformed TMB, it was not
+statistically significant and did not improve AIC compared with the quartile
+model. Therefore, the quartile coding appeared to capture the TMB association
+better than the continuous log transformation.
+
+### Stratify subtype
+
+```{r}
+cox_cli_mol5 <- coxph(surv_obj ~ age + grade + tmb_quart +
+                             msi_score_mantis + strata(subtype),
+                           data = mod)
+
+summary(cox_cli_mol5)
+
+AIC(cox_cli_mol2, cox_cli_mol5)
+BIC(cox_cli_mol2, cox_cli_mol5)
+
+summary(cox_cli_mol2)$concordance
+summary(cox_cli_mol5)$concordance
+```
+
+Stratifying by subtype produced much lower AIC/BIC, suggesting that
+subtype-specific baseline hazards may be important. However, the model had
+lower concordance and no longer estimates subtype hazard ratios, so it was
+considered a sensitivity analysis rather than the primary model.
+
+The reduced clinical + molecular Cox model was selected as the main model. PH
+diagnostics suggested possible non-proportionality for MSI, TMB, and subtype.
+Sensitivity analyses showed that allowing MSI to have a time-varying effect
+improved model fit, log-transformed continuous TMB was weaker than TMB
+quartiles, and subtype stratification suggested possible subtype-specific
+baseline hazards.
+
+### Adding aneuploidy score as a covariate
+
+```{r}
+cox_cli_mol6 <- coxph(surv_obj ~ age + grade + subtype + tmb_quart + 
+                        msi_score_mantis + aneuploidy_score,
+                      data = mod)
+summary(cox_cli_mol6)
+
+AIC(cox_cli_mol2, cox_cli_mol6)
+BIC(cox_cli_mol2, cox_cli_mol6)
+
+summary(cox_cli_mol2)$concordance
+summary(cox_cli_mol6)$concordance
+```
+
+## Final model
+
+```{r}
+cox_final <- coxph(surv_obj ~ age + grade + subtype + tmb_quart + 
+                     scale(msi_score_mantis),
+                   data = mod)
+summary(cox_final)
+
+cox_final_sens <- coxph(surv_obj ~ age + grade + subtype + tmb_quart + 
+                     scale(msi_score_mantis) + tt(msi_score_mantis),
+                     tt = function(x, t, ...) x * log(t),
+                     data = mod)
+summary(cox_final_sens)
+```
+
+The final Cox model included age, grade, molecular subtype, TMB quartile, and
+standardized MSI score. MSI was standardized to improve interpretability, so
+its hazard ratio represents the effect of a one-standard-deviation increase.
+Because PH diagnostics suggested possible time-varying behavior for MSI, a
+sensitivity model was also fit using an MSI-by-log-time interaction. This
+sensitivity analysis was used to assess whether the MSI association changed
+over follow-up time.
+
+```{r}
+library(broom)
+
+# hazard ratios for final model
+hr_tab <- tidy(cox_final,
+                exponentiate = TRUE,
+                conf.int = TRUE)
+(hr_tab <- hr_tab %>%
+  mutate(across(where(is.numeric), ~ round(.x, 3))))
+
+hr_tab_sens <- tidy(cox_final_sens,
+                    exponentiate = TRUE,
+                    conf.int = TRUE)
+(hr_tab_sens <- hr_tab_sens %>%
+  mutate(across(where(is.numeric), ~ round(.x, 3))))
+```
+
+```{r}
+# forest plot for final model
+(p10 <- ggforest(cox_final,
+         data = mod,
+         main = "Hazard Ratios from Final Cox Model"))
+
+ggsave(filename = "forest_final.png",
+       plot = p10,
+       width = 11,
+       height = 6,
+       dpi = 300)
+
+(p11 <- ggforest(cox_final_sens,
+                 data = mod,
+                 main = "Hazard Ratios from Final Cox Model with Sensitivity"))
+
+ggsave(filename = "forest_final_sens.png",
+       plot = p11,
+       width = 11,
+       height = 6,
+       dpi = 300)
+```
+
+Older age was associated with a significantly higher hazard of death. Each
+additional year of age was associated with approximately a 4% increase in the
+hazard of death, adjusting for grade, subtype, TMB quartile, and MSI score.
+
+Compared with grade G2 tumors, grade G3 tumors were associated with a
+significantly higher hazard of death, with an estimated hazard about 2.16 times
+as large.
+
+Tumor subtype was strongly associated with survival. In particular, patients
+with LGG IDHwt tumors had substantially worse survival, with an estimated
+hazard about seven times that of patients with LGG IDHmut-codeleted tumors.
+The unknown subtype category was not statistically significant, likely due to
+the very small sample size in that group.
+
+Higher TMB quartiles were generally associated with increased hazard. Compared
+with the lowest TMB group, the third and fourth TMB quartiles had approximately
+twice the hazard of death and were statistically significant.
+
+In the main Cox model, higher MSI score was associated with a lower hazard of
+death. A one-standard-deviation increase in MSI score was associated with
+approximately a 21% reduction in the hazard of death, adjusting for other
+covariates.
+
+In the sensitivity model, the time-dependent MSI term was statistically
+significant, suggesting that the effect of MSI score may vary over time.
+Therefore, the proportional hazards assumption for MSI may be questionable, and
+the constant MSI hazard ratio from the main model should be interpreted with
+caution.
+
+Overall, in the final Cox model, older age, higher tumor grade, IDHwt subtype,
+and higher TMB quartiles were associated with increased hazard of death. Among
+tumor subtypes, LGG IDHwt showed the strongest association with worse survival.
+In the main model, higher MSI score appeared protective, but the sensitivity
+model suggested that the MSI effect may vary over time. Overall, the model
+showed strong predictive discrimination, with a concordance index around 0.83.
+
+Paragraph for report:
+
+In the final multivariable Cox proportional hazards model, age, tumor grade, 
+molecular subtype, TMB quartile, and MSI score were included as predictors of
+overall survival. Older age was significantly associated with increased hazard
+of death, with each additional year corresponding to approximately a 4%
+increase in hazard. Compared with grade G2 tumors, grade G3 tumors were
+associated with more than twice the hazard of death. Tumor subtype was also
+strongly associated with survival. In particular, LGG IDHwt tumors had the
+highest risk, with an estimated hazard about seven times that of the LGG
+IDHmut-codeleted reference group. Higher TMB quartiles were also associated
+with increased hazard, especially the third and fourth quartiles compared with
+the lowest TMB group. In the main model, higher MSI score was associated with
+lower hazard; however, the sensitivity model including a time-dependent MSI
+effect suggested that the MSI association may vary over time. The model
+demonstrated good discriminatory ability, with a concordance index of
+approximately 0.83.
