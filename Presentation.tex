@@ -1,0 +1,522 @@
+\documentclass{beamer}
+\usetheme{Madrid}
+\usecolortheme{default}
+\usepackage{graphicx, caption, subcaption, array, listings, bm, booktabs, xcolor, hyperref}
+\graphicspath{ {./images/} }
+
+\usepackage{tikz}
+\def\checkmark{\tikz\fill[scale=0.4](0,.35) -- (.25,0) -- (1,.7) -- (.25,.15) -- cycle;} 
+
+\setbeamertemplate{bibliography item}[article]
+
+\title[STAT 218]
+{Evaluating Clinical and Genomic Predictors of Overall Survival in Lower-Grade Glioma}
+
+\author[L. Liu] 
+{Linlin Liu\texorpdfstring{\\}{ }
+University of California, Riverside\\
+STAT 218 \\
+June 1, 2026 \\}
+
+\date[June 1, 2026]
+
+\definecolor{rando}{RGB}{38,38,134}
+\setbeamercolor{titlelike}{bg=rando}
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\begin{frame}{Table of Contents}
+  \tableofcontents
+\end{frame}
+
+\AtBeginSection[]
+{
+  \begin{frame}
+    \frametitle{Table of Contents}
+    \tableofcontents[currentsection]
+  \end{frame}
+}
+
+\section{Introduction}
+
+\begin{frame}{Background: Lower-Grade Gliomas \footnote{The Cancer Genome Atlas Research Network, 2015}}
+\begin{itemize}
+    \item Lower-grade gliomas (LGG) are primary brain tumors that often affect younger adults and have highly variable clinical outcomes.
+    \item Compared with high-grade glioblastoma, LGG patients often have longer survival, but prognosis can differ substantially across patients.
+    \item Some patients experience relatively slow disease progression, while others develop more aggressive disease and shorter survival.
+    \item This variation makes LGG an important setting for survival analysis. 
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Clinical and Molecular Prognostic Factors \footnote{Eckel-Passow et al., 2015}}
+\begin{itemize}
+    \item Traditional clinical prognostic factors include patient age, histologic grade, tumor type, and treatment history. However, molecular profiling has changed how LGG prognosis is understood.
+    \item In particular, isocitrate dehydrogenase (IDH) mutation status and 1p/19q codeletion are now recognized as major molecular markers associated with LGG survival. Tumors with IDH mutations generally have better prognosis, while IDH-wildtype tumors are associated with poorer outcomes.  In LGG, tumors with both IDH mutation and 1p/19q codeletion often have the most favorable prognosis.
+    \item Therefore, modern LGG survival analysis should account for both clinical factors and molecular subtype.
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Motivation: Genomic Instability \footnote{Louis et al., 2016; Taylor et al., 2018}}
+\begin{itemize}
+    \item The Cancer Genome Atlas (TCGA) provides clinical and genomic data that allow survival outcomes to be studied alongside molecular tumor features.
+    \only<2>{
+    \item This project will focus on three genomic instability measures:
+    \begin{itemize}
+        \item \textbf{Aneuploidy burden}: large-scale chromosomal copy-number alterations,
+        \item \textbf{Tumor mutation burden (TMB)}: overall number of mutations in the tumor genome, usually reported as mutations per megabase
+        \item \textbf{Microsatellite instability (MSI)}: instability in repetitive DNA regions.
+    \end{itemize}
+    \item These features may capture additional tumor biology not fully explained by clinical factors or molecular subtype.
+    }
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Research Question}
+\begin{block}{Main Question}
+Do genomic instability measures independently predict overall survival in LGG after accounting for clinical factors and molecular subtype?
+\end{block}
+
+\vspace{0.3cm}
+
+\only<2->{
+\begin{itemize}
+    \item Specifically, this project evaluates whether aneuploidy burden, TMB, and MSI are associated with overall survival by comparing clinical predictors with molecular and genomic predictors using Cox proportional hazards (PH) models.
+    \item The goal is to assess whether genomic instability provides additional prognostic information beyond established LGG risk factors.
+\end{itemize}
+}
+\end{frame}
+
+\section{Exploratory Data Analysis}
+
+\begin{frame}{Dataset Overview}
+\begin{itemize}
+  \item The analysis uses TCGA lower-grade glioma clinical and molecular data.
+  \item Patient-level clinical information and sample-level molecular information were merged using patient ID.
+  \item The primary outcome is overall survival, defined by survival time in months. Death is the event of interest, and patients alive at last follow-up are treated as right-censored.
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Variable Dictionary}
+\tiny
+\centering
+\begin{tabular}{lll}
+\toprule
+\textbf{Variable} & \textbf{Levels / Units} & \textbf{Category} \\
+\midrule
+time & Overall survival time, months & Outcome \\
+event & 0 = censored/alive, 1 = deceased & Outcome \\
+age & Years & Clinical* \\
+sex & Female, Male & Clinical* \\
+grade & Grade II, Grade III & Clinical* \\
+subtype & IDHmut-codel, IDHmut-non-codel, IDHwt, Unknown & Molecular$\dagger$ \\
+tumor\_type & Astrocytoma, Oligoastrocytoma, Oligodendroglioma & Clinical* \\
+radiation\_therapy & No, Yes, Unknown & Clinical* \\
+race & White, Black, Asian, American Indian/Alaska Native, Unknown & Demographic* \\
+ethnicity & Hispanic/Latino, Not Hispanic/Latino, Unknown & Demographic* \\
+aneuploidy\_score & Number of altered chromosome arms & Genomic$\dagger$ \\
+tmb\_nonsynonymous & Mutations per megabase, mut/Mb & Genomic$\dagger$ \\
+tmb\_quart & TMB quartile groups & Genomic$\dagger$ \\
+msi\_score\_mantis & Unitless MSI score from MANTIS & Genomic$\dagger$ \\
+msi\_sensor\_score & Unitless MSI score from MSIsensor & Genomic$\dagger$ \\
+pfs\_months & Progression-free survival time, months & Secondary outcome \\
+pfs\_status & 0 = censored, 1 = progression & Secondary outcome \\
+\bottomrule
+\end{tabular}
+
+\vspace{0.15cm}
+\footnotesize
+*Clinical/demographic factor; $\dagger$Molecular/genomic factor.
+\end{frame}
+
+\begin{frame}{Data Preprocessing}
+\begin{columns}[T]
+    \column{0.50\textwidth}
+    \begin{itemize}
+        \item Overall survival status was converted into a binary event indicator: 0 = alive/censored and 1 = deceased.
+        \item Missing categorical values were coded as ``Unknown'' when useful, so that patients were not unnecessarily excluded.
+        \item Variables were converted to the appropriate types before analysis.
+    \end{itemize}
+    \column{0.42\textwidth}
+    \begin{block}{Final analytic cohort}
+        \centering
+        \begin{tabular}{lr}
+        \toprule
+        Characteristic & Value \\
+        \midrule
+        Patients & 501 \\
+        Deaths & 125 \\
+        Censored & 376 \\
+        Median age & 41 years-old\\
+        Female / Male & 220 / 281 \\
+        Grade II / III & 240 / 261 \\
+        \bottomrule
+        \end{tabular}
+    \end{block}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Cohort Characteristics}
+\begin{itemize}
+    \item Molecular subtype
+        \begin{itemize}
+            \item IDHmut-codel: $n = 163$
+            \item IDHmut-non-codel: $n = 243$
+            \item IDHwt: $n = 92$
+            \item Unknown: $n = 3$
+        \end{itemize}
+    \item Tumor type
+        \begin{itemize}
+            \item Astrocytoma: $n = 193$
+            \item Oligoastrocytoma: $n = 127$
+            \item Oligodendroglioma: $n = 181$
+        \end{itemize}
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Variable Distributions}
+\begin{itemize}
+  \only<2->{\item The median age was 41 years, with a broad range from adolescence to older adulthood.}
+  \only<3->{\item There were 125 deaths and 376 censored observations, giving enough events for Cox modeling while still reflecting substantial censoring.}
+  \only<4->{\item The cohort was reasonably balanced by sex ($n_F = 220, n_M = 281$).}
+  \only<5->{\item Grade II ($n = 240$) and Grade III ($n = 261$) tumors were nearly balanced, supporting comparison of grade-based survival differences.}
+  \only<6->{\item The cohort contains major molecular subtypes, allowing subtype to be evaluated as a central prognostic factor.}
+  \only<7->{\item The cohort is predominantly White and non-Hispanic, so these variables were treated mainly descriptively rather than as major modeling targets.}
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Overall Survival}
+\begin{figure}
+    \centering
+    \includegraphics[width=0.8\linewidth]{overall_km.png}
+\end{figure}
+\end{frame}
+
+\begin{frame}{KM Survival Curve of Molecular Subtype}
+\begin{figure}
+    \centering
+    \includegraphics[width=0.8\linewidth]{subtype_km.png}
+\end{figure}
+\end{frame}
+
+\begin{frame}{KM Survival Curve of Tumor Grade}
+\begin{figure}
+    \centering
+    \includegraphics[width=0.8\linewidth]{grade_km.png}
+\end{figure}
+\end{frame}
+
+\begin{frame}{Clinical Predictors: Age and Treatment}
+\begin{columns}[T]
+    \column{0.50\textwidth}
+    \begin{figure}
+        \centering
+        \includegraphics[width=1\linewidth]{age_event.png}
+    \end{figure}
+    \column{0.50\textwidth}
+    \begin{figure}
+        \centering
+        \includegraphics[width=1\linewidth]{rad_km.png}
+    \end{figure}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Molecular Predictors: Aneuploidy Burden}
+\begin{columns}[T]
+    \column{0.50\textwidth}
+    \begin{figure}
+        \centering
+        \includegraphics[width=1\linewidth]{aneu_event.png}
+    \end{figure}
+    \column{0.50\textwidth}
+    \begin{figure}
+        \centering
+        \includegraphics[width=1\linewidth]{anue_km.png}
+    \end{figure}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Molecular Predictors: TMB and Correlation Structure}
+\begin{columns}[T]
+    \column{0.50\textwidth}
+    \begin{figure}
+        \centering
+        \includegraphics[width=1\linewidth]{tmb_hist.png}
+    \end{figure}
+    \column{0.50\textwidth}
+    \begin{figure}
+        \centering
+        \includegraphics[width=1\linewidth]{corr.png}
+    \end{figure}
+\end{columns}
+\end{frame}
+
+\section{Modeling}
+
+\begin{frame}{Strategy Overview}
+\begin{enumerate}
+    \only<2->{\item Fit univariate Cox models for each candidate predictor.}
+    \only<3->{\item Use EDA and univariate results to identify important clinical and molecular predictors.}
+    \only<4->{\item Compare two clinical-only Cox models: one using molecular subtype versus one using histologic tumor type.}
+    \only<5->{\item Add molecular/genomic predictors to evaluate whether they improve prediction beyond clinical factors.}
+    \only<6->{\item Compare candidate models using likelihood ratio tests, AIC, BIC, and concordance.}
+    \only<7->{\item Check PH assumptions and perform sensitivity analyses.}
+\end{enumerate}
+\end{frame}
+
+\begin{frame}{TMB Functional Form}
+\begin{itemize}
+    \item TMB was originally measured as a continuous molecular variable, but its distribution was extremely right-skewed. 
+    \item Martingale residual plots were used to assess whether TMB had an approximately linear relationship with the log hazard:
+    \begin{itemize}
+        \item Original TMB was dominated by extreme outliers, making the pattern difficult to interpret.
+        \item $\log(\text{TMB}+1)$ improved the scale, but the smoothed residual curve still did not show a clear linear trend.
+        \item To avoid forcing a linear effect, TMB was split into empirical quartiles.
+    \end{itemize}
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Comparing TMB Specifications}
+\centering
+\begin{tabular}{lccc}
+    \toprule
+    Model & df & AIC & BIC \\
+    \midrule
+    No TMB & 12 & 1106.956 & 1140.896 \\
+    Log TMB & 13 & 1106.535 & 1143.030 \\
+    TMB quartiles & 15 & 1107.029 & 1149.540 \\
+    \bottomrule
+\end{tabular}
+
+\vspace{0.3cm}
+
+\begin{itemize}
+    \item The AIC values were very similar across the three specifications.
+    \item The log-TMB model had the lowest AIC, but the difference from the quartile model was small.
+    \item BIC favored the simpler no-TMB model because it penalizes additional parameters more strongly.
+\end{itemize}
+\end{frame}
+
+\begin{frame}{TMB Quartile Groups}
+\begin{itemize}
+    \item Splitting TMB using empirical quartiles from the analytic cohort created four groups with roughly similar sample sizes:
+\end{itemize}
+
+\vspace{0.3cm}
+
+\centering
+\begin{tabular}{lcc}
+    \toprule
+    TMB group & Range & n \\
+    \midrule
+    Quartile 1 & $[0, 0.7]$ & 142 \\
+    Quartile 2 & $(0.7, 0.933]$ & 115 \\
+    Quartile 3 & $(0.933, 1.23]$ & 120 \\
+    Quartile 4 & $(1.23, 363]$ & 124 \\
+    \bottomrule
+\end{tabular}
+
+\vspace{0.3cm}
+
+\begin{itemize}
+    \item The first quartile was used as the reference group in the Cox model. Each higher quartile was compared against the lowest TMB group.
+    \item This coding allows interpretation in terms of relative hazard for increasing TMB burden.
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Clinical Model Comparison}
+\begin{itemize}
+    \item Model 1: age, sex, grade, radiation therapy, and molecular subtype.
+    \item Model 2: age, sex, grade, radiation therapy, and tumor type.
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Adding Molecular Predictors}
+\begin{itemize}
+   \item Candidate molecular predictors included aneuploidy score, TMB quartile, and MSI MANTIS score.
+   \item Aneuploidy was considered because EDA suggested higher aneuploidy burden among patients with poorer survival.
+   \item TMB was included as quartiles because of its extreme skewness and uncertain continuous functional form.
+   \item MSI MANTIS score was selected as the MSI measure because MANTIS and MSIsensor were correlated, so including both could introduce redundancy.
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Model Reduction and Final Model Choice}
+\begin{itemize}
+    \item A full clinical + molecular Cox model was first fitted.
+    \item Variables that did not improve model fit or had limited interpretability were removed to obtain a reduced model.
+    \only<2->{
+    \item The reduced model retained age, grade, molecular subtype, TMB quartile, and MSI MANTIS score.
+    \item Therefore, the final primary model was:
+    \begin{equation*}
+    \begin{split}
+        h(t \mid X) = h_0(t)\exp\{&\beta_1\text{Age} + \beta_2\text{Grade} + \beta_3\text{Subtype} \\
+        &+ \beta_4\text{TMB quartile} + \beta_5\text{MSI}\}.
+    \end{split}
+    \end{equation*}
+    }
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Model Comparison}
+\centering
+\begin{tabular}{lccc}
+    \toprule
+    Model & AIC & BIC & C-index \\
+    \midrule
+    Clinical only & 1115.1 & 1137.7 & 0.833 \\
+    Full clinical + molecular & 1104.3 & 1141.1 & 0.829 \\
+    Reduced clinical + molecular & 1098.0 & 1123.5 & 0.826 \\
+    \bottomrule
+\end{tabular}
+
+\vspace{0.3cm}
+
+\begin{itemize}
+    \item The reduced clinical + molecular model had lower AIC and BIC than the clinical-only model.
+    \item Concordance remained strong across models.
+    \item The reduced model was chosen as the primary final model because it improved fit while remaining interpretable.
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Sensitivity Analyses: Functional Form}
+\textbf{Time-varying MSI effect}
+\begin{itemize}
+    \item The PH diagnostic suggested that the MSI effect may vary over time.
+    \item A sensitivity model included a time-dependent MSI term, $\text{MSI} \times \log(t)$. 
+    \item This model improved AIC from 1098.0 to 1094.8 and C-index from 0.826 to 0.834, suggesting improved fit, but was treated as a sensitivity analysis because interpretation is less straightforward.
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Sensitivity Analyses: Model Structure}
+\only<2->{
+\textbf{Subtype-stratified Cox model}
+\begin{itemize}
+    \item A stratified model using \texttt{strata(subtype)} was considered to allow each molecular subtype to have its own baseline hazard. This relaxes the PH assumption for subtype.
+    \item However, stratifying by subtype means subtype itself no longer has a hazard ratio, so the main model retained subtype as a covariate for interpretability.
+\end{itemize}
+}
+\only<3->{
+\textbf{Adding aneuploidy score}
+\begin{itemize}
+    \item Aneuploidy score was also evaluated as an additional molecular covariate.
+    \item Although EDA suggested higher aneuploidy burden among poorer-outcome patients, it was not retained in the reduced final model after adjustment.
+    \item Since the result suggests that its apparent effect may overlap with subtype, grade, TMB, MSI, or other clinical factors, it was not included in the final model.
+\end{itemize}
+}
+\end{frame}
+
+\section{Results}
+
+\begin{frame}{Final Cox Model: Main Results}
+\begin{figure}
+    \centering
+    \includegraphics[width=1\linewidth]{forest_final.png}
+\end{figure}
+\end{frame}
+
+\begin{frame}{Final Cox Model: Interpretation}
+\begin{itemize}
+    \item The final primary model included age, grade, molecular subtype, TMB quartile, and standardized MSI MANTIS score.
+    \item MSI MANTIS was standardized using \texttt{scale(msi\_score\_mantis)}, so its hazard ratio is interpreted per one-standard-deviation increase in MSI score. 
+    \item Older age, Grade III tumors, IDH-wildtype subtype, and higher TMB quartiles were associated with increased hazard of death.
+    \item In the primary model, higher standardized MSI MANTIS score was associated with lower hazard, but this result should not be interpreted as a simple protective effect because the sensitivity analysis suggested that the MSI association may not be constant over time.
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Time-Varying MSI Effect: Main Results}
+\begin{figure}
+    \centering
+    \includegraphics[width=1\linewidth]{forest_final_sens.png}
+\end{figure}
+\end{frame}
+
+\begin{frame}{Time-Varying MSI Effect: Interpretation}
+\begin{itemize}
+    \item In this sensitivity model, the regular MSI term was no longer statistically significant (HR = 1.19, $p$ = 0.21). However, the time-varying MSI term was statistically significant (HR = 0.0085, $p$ = 0.004).
+    \item Because this model is harder to interpret than the primary Cox model, it is reported as a sensitivity analysis rather than selecting it as the main final model.
+    \item Importantly, the main conclusions for age, grade, molecular subtype, and TMB quartile remain similar.
+\end{itemize}
+\end{frame}
+
+\section{Conclusion and Discussion}
+
+\begin{frame}{Key Findings}
+\only<2->{
+\begin{block}{Clinical predictors}
+Older age, Grade III disease, and IDH-wildtype subtype were associated with worse overall survival. 
+\end{block}
+}
+\only<3->{
+\begin{block}{Molecular predictors}
+Higher TMB quartiles were associated with increased hazard after adjustment for clinical factors and molecular subtype. MSI appeared protective in the primary Cox model, but sensitivity analysis suggested that the MSI association may vary over time.
+\end{block}
+}
+\only<4->{
+\begin{block}{Main takeaway}
+Genomic instability measures, particularly TMB, added prognostic information beyond clinical factors and molecular subtype. However, established prognostic variables, especially tumor grade and IDH subtype, remained central to survival risk stratification.
+\end{block}
+}
+\end{frame}
+
+\begin{frame}{Implications for Prognostic Prediction}
+\begin{itemize}
+    \item The final Cox model had strong discrimination, with a concordance index around 0.83.
+    \item Age, grade, and molecular subtype provided a strong clinical prognostic foundation.
+    \item Adding genomic instability measures, especially TMB quartiles, helped evaluate whether genomic features contributed additional prognostic information beyond clinical and subtype predictors. While MSI showed an association in the primary model, sensitivity analysis suggested that its prognostic effect may vary over time.
+    \item However, this analysis should be interpreted as prognostic modeling and risk stratification, not as a fully validated clinical prediction tool. 
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Discussion}
+\begin{itemize}
+    \item The results are consistent with the known importance of age, grade, and molecular subtype in lower-grade glioma prognosis.
+    \item The strong effect of IDH-wildtype subtype supports the role of molecular classification in survival risk stratification.
+    \item TMB showed evidence of prognostic relevance after adjustment, but its interpretation depends on how the highly skewed TMB distribution is modeled.
+    \item MSI was significant in the primary model, but the time-varying sensitivity model suggested that its association with hazard may change over follow-up.
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Limitations}
+\begin{itemize}
+    \item The analysis used observational data, so treatment-related associations should not be interpreted causally.
+    \item Some categories were sparse, especially the unknown subtype group.
+    \item Race and ethnicity analyses were limited because the cohort was predominantly White and non-Hispanic.
+    \item PH diagnostics suggested possible non-proportional hazards for MSI.
+    \item TMB was highly right-skewed, so conclusions may depend on how it is coded.
+    \item The model was evaluated internally. External validation was not performed, so the model’s generalizability remains uncertain.
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Future Work}
+\begin{itemize}
+    \item Validate the final Cox model in an independent LGG cohort to assess generalizability.
+    \item Evaluate predictive accuracy using train-test splits or cross-validation.
+    \item Explore flexible functional forms for continuous genomic predictors, such as splines for TMB and aneuploidy score.
+    \item Further investigate time-varying effects, especially for MSI.
+    \item Consider additional genomic features, treatment variables, and interaction terms, such as subtype-specific molecular effects.
+\end{itemize}
+\end{frame}
+
+\begin{frame}
+\centering
+\Large  Thank You! \\
+\normalsize Questions?
+\end{frame}
+
+\section{References}
+
+\begin{frame}
+\footnotesize
+\begin{itemize}
+    \item Brain Lower Grade Glioma. CBioPortal for Cancer Genomics. (n.d.). \url{https://www.cbioportal.org/study/clinicalData?id=lgg_tcga_pan_can_atlas_2018}
+    \item Eckel-Passow, J. E., et al. (2015). Glioma groups based on 1p/19q, IDH, and TERT promoter mutations in tumors. \textit{N Engl J Med}, 372(26):2499--2508.
+    \item Louis, D. N., Perry, A., Reifenberger, G., von Deimling, A., Figarella-Branger, D., Cavenee, W. K., Ohgaki, H., Wiestler, O. D., Kleihues, P., \& Ellison, D. W. (2016). The 2016 World Health Organization classification of tumors of the central nervous system: a summary. \textit{Acta Neuropathol}, 131(6):803--20. 
+    \item Taylor, A. M., Shih, J., Ha, G., Gao, G. F., Zhang, X., Berger, A. C., Schumacher, S. E., Wang, C., Hu, H., Liu, J., Lazar, A. J., The Cancer Genome Atlas Research Network, Cherniack, A. D., Beroukhim, R., \& Meyerson, M. (2018). Genomic and functional approaches to understanding cancer aneuploidy. \textit{Cancer Cell}, 33(4):676--689.
+    \item The Cancer Genome Atlas Research Network (2015). Comprehensive, integrative genomic analysis of diffuse lower-grade gliomas. \textit{N Engl J Med}, 372:2481--2498.
+\end{itemize} 
+\end{frame}
+
+\end{document}
