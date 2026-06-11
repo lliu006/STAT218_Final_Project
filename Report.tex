@@ -1,0 +1,234 @@
+\documentclass[paper=a4, fontsize=11pt]{scrartcl}
+\usepackage[T1]{fontenc}
+\usepackage{fourier}
+\usepackage[english]{babel}	% English language/hyphenation
+\usepackage[protrusion=true,expansion=false]{microtype}	
+\usepackage{amsmath,amsfonts,amsthm} % Math packages
+\usepackage{graphicx}	
+\usepackage{url}
+\usepackage[colorlinks=true, citecolor=blue, urlcolor=black]{hyperref}
+\usepackage{float, booktabs}
+\usepackage{subcaption}
+\usepackage{sectsty}
+\allsectionsfont{\centering \normalfont\scshape}
+\usepackage{fancyhdr}
+\pagestyle{fancyplain}
+\fancyhead{}											% No page header
+\fancyfoot[L]{}											% Empty 
+\fancyfoot[C]{}											% Empty
+\fancyfoot[R]{\thepage}									% Pagenumbering
+\renewcommand{\headrulewidth}{0pt}			% Remove header underlines
+\renewcommand{\footrulewidth}{0pt}				% Remove footer underlines
+\setlength{\headheight}{13.6pt}
+\numberwithin{equation}{section}		% Equationnumbering: section.eq#
+\numberwithin{figure}{section}			% Figurenumbering: section.fig#
+\numberwithin{table}{section}				% Tablenumbering: section.tab#
+\newcommand{\horrule}[1]{\rule{\linewidth}{#1}} 	% Horizontal rule
+
+\title{\usefont{OT1}{bch}{b}{n}
+		\normalfont \normalsize \textsc{University of California, Riverside} \\ [25pt]
+		\horrule{0.5pt} \\[0.4cm]
+		\huge Evaluating Clinical and Genomic Predictors of Overall Survival in Lower-Grade Glioma \\
+		\horrule{2pt} \\[0.5cm]}
+\author{
+		\normalfont 								\normalsize
+        Linlin Liu \\[-3pt]		\normalsize
+        \today}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section{Abstract}
+
+Lower-grade gliomas (LGG) are primary brain tumors with highly variable survival outcomes. Although age, tumor grade, and molecular subtype are established prognostic factors, it remains important to assess whether broader genomic instability measures provide additional prognostic information. This study evaluated whether aneuploidy burden, tumor mutation burden (TMB), and microsatellite instability (MSI) are associated with overall survival in LGG after accounting for clinical and molecular factors. Overall survival of 501 patients was modeled using Cox proportional hazards regression. Clinical-only models were compared with clinical and genomic models using AIC, BIC, and concordance. The final reduced model retained age, tumor grade, molecular subtype, TMB quartile, and standardized MSI MANTIS score. Older age, Grade III disease, IDH-wildtype subtype, and higher TMB quartiles were associated with increased hazard of death. MSI was associated with lower hazard in the primary model, although sensitivity analysis suggested a possible time-varying effect. Aneuploidy burden was not retained after adjustment. Overall, selected genomic instability measures, particularly TMB and MSI, provided modest additional prognostic information, while age, grade, and molecular subtype remained central to LGG survival risk stratification. \\
+
+\noindent
+\textbf{Keywords:} lower-grade glioma, overall survival, Cox proportional hazards model, molecular subtype, genomic instability, tumor mutation burden, microsatellite instability, aneuploidy
+
+\section{Introduction}
+
+Lower-grade gliomas (LGG), including World Health Organization (WHO) grade II and grade III diffuse gliomas, are primary brain tumors that often affect younger adults and have highly variable clinical outcomes. Compared with high-grade glioblastoma, LGG patients often have longer survival, but prognosis can differ substantially across patients. Some patients experience relatively slow disease progression, while others develop more aggressive disease and shorter survival. This heterogeneity makes LGG an important setting for survival analysis and prognostic modeling \cite{tcga2015}. \\
+
+\noindent
+Historically, glioma prognosis was assessed using clinical and histologic features such as patient age, tumor type, and treatment history. However, molecular profiling has changed how gliomas are classified and how their prognosis is understood. \cite{louis2016}. In LGG, isocitrate dehydrogenase (IDH) mutation status and 1p/19q codeletion are especially important. Tumors with IDH mutations generally have better prognosis, while IDH-wildtype tumors are associated with poorer outcomes. Among IDH-mutant tumors, the presence of 1p/19q codeletion is often associated with the most favorable prognosis \cite{tcga2015, eckelpassow2015}. \\
+
+\noindent
+Beyond established molecular subtype, broader measures of genomic instability may also be relevant for prognosis. Genomic instability refers to the tendency of tumor cells to accumulate genetic alterations. In this analysis, three genomic instability measures were considered: aneuploidy burden, tumor mutation burden (TMB), and microsatellite instability (MSI). Aneuploidy burden reflects large-scale chromosomal copy-number alterations, often summarized as the number of altered chromosome arms \cite{taylor2018}. TMB measures the overall number of mutations in the tumor genome, usually reported as mutations per megabase. MSI refers to instability in repetitive DNA regions and may reflect defects in DNA mismatch repair \cite{tcga2015, cbioportal_lgg}. \\
+
+\noindent
+The main research question of this study was: Do genomic instability measures independently predict overall survival in LGG after accounting for clinical factors and molecular subtype? More specifically, this project evaluated whether aneuploidy burden, TMB, and MSI are associated with overall survival after adjustment for clinical factors and molecular subtype using Cox proportional hazards models. 
+
+\section{Methods} 
+
+This analysis used TCGA lower-grade glioma clinical and molecular data, accessed through cBioPortal \cite{cbioportal_lgg}. Patient-level clinical information and sample-level molecular information were merged using patient identifiers. After preprocessing and merging clinical and molecular variables, the final analytic cohort contained 501 patients. Among these patients, 125 experienced death and 376 were censored. \\
+
+\noindent
+The outcome variables were overall survival time and event status. Overall survival time was measured in months. Event status was coded as 1 for death and 0 for censored observations. Clinical and demographic predictors included age, sex, tumor grade, tumor type, radiation therapy, race, and ethnicity. Tumor grade was coded as Grade II or Grade III. Molecular subtype was categorized as IDHmut-codel, IDHmut-non-codel, IDHwt, or Unknown. The genomic instability variables were aneuploidy score, TMB, and MSI. 
+
+\subsection{Exploratory Data Analysis} 
+
+\paragraph{Overall Survival} The overall Kaplan--Meier curve in Figure~\ref{fig:eda_overall} shows a gradual decline in survival probability over follow-up. This pattern is consistent with LGG patients often having longer survival than patients with more aggressive high-grade gliomas, while still experiencing substantial variability in outcomes. 
+
+\paragraph{Clinical and Molecular Survival Patterns} Molecular subtype showed one of the clearest unadjusted survival patterns (Figure~\ref{fig:eda_subtype}). Patients with IDHmut-codel tumors had the most favorable survival, and patients with IDH-wildtype tumors had the poorest survival. This pattern supports the use of molecular subtype as a central predictor in the Cox models. Tumor grade also showed clear unadjusted survival differences (Figure~\ref{fig:eda_grade}). Grade III tumors had poorer survival than Grade II tumors, supporting the inclusion of grade as an important clinical prognostic factor. Age had a similar clinical pattern. As shown in Figure~\ref{fig:eda_age}, patients who died tended to be older than patients who were alive or censored at last follow-up. 
+
+\paragraph{Genomic Instability Measures} Among the genomic instability measures, aneuploidy burden (Figure~\ref{fig:eda_aneuploidy}) showed an apparent unadjusted association with survival. Here, patients with higher aneuploidy burden had poorer Kaplan--Meier survival than patients with lower aneuploidy burden. Because this was an unadjusted comparison, aneuploidy was evaluated further in multivariable Cox models to determine whether it remained prognostic after accounting for other factors. TMB was extremely right-skewed. This distribution made a simple linear continuous effect difficult to justify. Martingale residual plots also did not show a clear linear relationship between TMB and the log hazard. Therefore, TMB was modeled using empirical quartiles in the primary analysis rather than forcing a linear continuous effect. The quartile cutoffs are: Q1 $[0,0.7]$, Q2 $(0.7,0.933]$, Q3 $(0.933,1.23]$, and Q4 $(1.23,363]$, with Q1 used as the reference group.
+
+\paragraph{Correlation Among Genomic Variables}  The correlation plot in Figure~\ref{fig:eda_corr} was used to assess redundancy among genomic predictors before fitting multivariable models. Since the MSI MANTIS and MSIsensor scores were highly correlated and to avoid including redundant predictors, MSI MANTIS score was selected as the primary MSI measure in the final model. 
+
+\begin{figure}[H] 
+\centering 
+\begin{subfigure}[t]{0.32\textwidth} 
+    \centering 
+    \includegraphics[width=\linewidth]{overall_km.png} 
+    \caption{Overall survival} 
+    \label{fig:eda_overall} 
+\end{subfigure} 
+\hfill 
+\begin{subfigure}[t]{0.32\textwidth} 
+    \centering 
+    \includegraphics[width=\linewidth]{subtype_km.png} 
+    \caption{Molecular subtype} 
+    \label{fig:eda_subtype} 
+\end{subfigure} 
+\hfill 
+\begin{subfigure}[t]{0.32\textwidth} 
+    \centering 
+    \includegraphics[width=\linewidth]{grade_km.png} 
+    \caption{Tumor grade} 
+    \label{fig:eda_grade} 
+\end{subfigure} 
+
+\vspace{0.25cm} 
+
+\begin{subfigure}[t]{0.32\textwidth} 
+    \centering 
+    \includegraphics[width=\linewidth]{age_event.png} 
+    \caption{Age by survival status}
+    \label{fig:eda_age} 
+\end{subfigure} 
+\hfill 
+\begin{subfigure}[t]{0.32\textwidth} 
+    \centering 
+    \includegraphics[width=\linewidth]{anue_km.png} 
+    \caption{Aneuploidy burden} 
+    \label{fig:eda_aneuploidy} 
+\end{subfigure} 
+\hfill 
+\begin{subfigure}[t]{0.32\textwidth} 
+    \centering 
+    \includegraphics[width=\linewidth]{corr.png} 
+    \caption{Correlation among genomic variables} 
+    \label{fig:eda_corr} 
+\end{subfigure}
+\caption{Selected exploratory analyses for the TCGA LGG cohort. Panel~\subref{fig:eda_overall} shows the overall Kaplan--Meier survival curve for the full analytic cohort. Panel~\subref{fig:eda_subtype} shows clear survival separation by molecular subtype. Panel~\subref{fig:eda_grade} shows poorer survival for Grade III tumors compared with Grade II tumors. Panel~\subref{fig:eda_age} shows that deceased patients tended to be older than censored patients. Panel~\subref{fig:eda_aneuploidy} suggests poorer unadjusted survival among patients with higher aneuploidy burden. Panel~\subref{fig:eda_corr} shows the correlation structure among genomic variables, including correlation between the two MSI measures. } \label{fig:eda} 
+\end{figure}
+
+\subsection{Modeling Strategy}
+
+Survival modeling was conducted using Cox proportional hazards (PH) regression. The Cox model is appropriate for the present analysis because the outcome is time-to-event data with right-censoring. It also allows covariate effects to be interpreted through hazard ratios without specifying a parametric form for the baseline hazard. 
+
+\subsection{Clinical Model Comparison}
+
+Univariate Cox models were first fit for candidate predictors to assess their individual associations with overall survival. Then, two clinical-only models were compared. Molecular subtype was preferred over tumor type for both clinical and statistical reasons. In particular, Figure~\ref{fig:eda_subtype} showed that IDH-wildtype tumors had much poorer unadjusted survival than the IDH-mutant groups. Therefore, molecular subtype was used as the main tumor classification variable in later Cox models. 
+
+\subsection{Adding Genomic Instability Predictors} 
+
+After selecting the clinical model structure, genomic instability predictors were added to evaluate whether they provided additional prognostic information. In the final model, MSI MANTIS score was standardized so that its hazard ratio could be interpreted per one-standard-deviation increase. Therefore, the primary final model was 
+
+$$
+h(t \mid X) = h_0(t)\exp\{ \beta_1\text{Age} + \beta_2\text{Grade} + \beta_3\text{Subtype} + \beta_4\text{TMB quartile} + \beta_5\text{MSI}\}. 
+$$
+
+\subsection{Model Comparison Criteria} 
+
+Candidate models were compared using Akaike Information Criterion (AIC), Bayesian Information Criterion (BIC), and the concordance index, or C-index. AIC and BIC evaluate the balance between model fit and model complexity, with lower values indicating a better tradeoff. BIC penalizes additional parameters more strongly than AIC. C-index measures how well the model ranks patients by predicted risk. 
+
+\section{Results}
+
+\subsection{Model Comparison} 
+
+Table~\ref{tab:model} summarizes the main model comparison results. The clinical-only model had strong discrimination with a C-index of 0.833. Adding genomic instability predictors produced the full clinical and molecular model, which had lower AIC than the clinical-only model, suggesting improved fit. A reduced clinical and molecular model was then fit by removing variables that did not improve model fit or had limited interpretability. The reduced clinical and molecular model had the lowest AIC and BIC among the main candidate models and was thus selected as the primary final model.
+
+\begin{table}[H] 
+\scriptsize
+\centering   
+\begin{tabular}{lccccl} 
+\toprule 
+\textbf{Model} & \textbf{df} & \textbf{AIC} & \textbf{BIC} & \textbf{C-index} & \textbf{Variables} \\ 
+\midrule 
+Clinical only & 8 & 1115.1 & 1137.7 & 0.833 & Age, sex, subtype, grade, RT \\ Tumor type clinical model & 7 & 1151.5 & 1171.3 & 0.797 & Age, sex, tumor type, grade, RT \\ 
+Full clinical + molecular & 13 & 1104.3 & 1141.1 & 0.829 & Clinical model + aneuploidy, TMB, MSI \\ 
+Reduced clinical + molecular & 9 & 1098.0 & 1123.5 & 0.826 & Age, grade, subtype, TMB, MSI \\ 
+\bottomrule 
+\end{tabular} 
+\caption{Model comparison statistics for candidate Cox proportional hazards models.}
+\label{tab:model}
+\end{table}
+
+\noindent
+These results suggest that selected genomic instability measures improved overall model fit, especially according to AIC and BIC in the reduced model. However, the C-index did not improve relative to the clinical-only model. Thus, the most careful interpretation is that genomic instability measures modestly improved model fit but did not substantially improve risk discrimination once strong clinical and molecular subtype predictors were already included.
+
+\subsection{Final Cox Model} 
+
+Table~\ref{tab:final} presents the hazard ratios from the final reduced clinical and molecular Cox model. Age was significantly associated with overall survival. Tumor grade was strongly associated with survival as well. Molecular subtype was one of the strongest predictors in the model. IDH-wildtype tumors had approximately seven times the hazard of death compared with IDHmut-codel tumors (HR = 7.036, $p < 0.001$). The Unknown subtype group was not statistically significant, likely due to its very small sample size.
+
+\begin{table}[H] 
+\scriptsize
+\centering 
+\begin{tabular}{lccc} 
+\toprule 
+\textbf{Predictor} & \textbf{HR} & \textbf{95\% CI} & \textbf{$p$-value} \\ \midrule 
+Age, per year & 1.040 & 1.021--1.059 & $<$0.001 \\ 
+Grade III, ref: Grade II & 2.163 & 1.412--3.313 & $<$0.001 \\ 
+Subtype IDHmut-non-codel, ref: IDHmut-codel & 1.731 & 1.019--2.940 & 0.042 \\ Subtype IDHwt, ref: IDHmut-codel & 7.036 & 4.055--12.209 & $<$0.001 \\ 
+Subtype Unknown, ref: IDHmut-codel & 3.148 & 0.660--15.014 & 0.150 \\ 
+TMB Q2, ref: Q1 & 1.684 & 0.866--3.276 & 0.125 \\ 
+TMB Q3, ref: Q1 & 2.285 & 1.160--4.500 & 0.017 \\ 
+TMB Q4, ref: Q1 & 2.235 & 1.106--4.516 & 0.025 \\ 
+MSI MANTIS, per SD increase & 0.789 & 0.701--0.887 & $<$0.001 \\ 
+\bottomrule 
+\end{tabular} 
+\caption{Hazard ratios from the final reduced Cox proportional hazards model ($N = 501$, events = 125, $C = 0.826$).} 
+\label{tab:final} 
+\end{table}
+
+\noindent
+TMB quartile showed evidence of association with survival after adjustment. Compared with the lowest TMB quartile, patients in Quartile 3 had more than twice the hazard of death (HR = 2.285, $p = 0.017$), and patients in Quartile 4 also had significantly elevated hazard (HR = 2.235, $p = 0.025$). These results suggest that higher TMB burden may be associated with poorer survival, although the pattern was not perfectly monotonic. Standardized MSI MANTIS score was associated with lower hazard in the primary model. However, this result should be interpreted cautiously because proportional hazards diagnostics suggested that the MSI effect may vary over time.
+
+\subsection{Proportional Hazards Diagnostics} 
+
+The PH assumption was assessed using scaled Schoenfeld residuals. The diagnostics suggested possible non-proportional hazards for MSI score, TMB quartile, and molecular subtype. These diagnostic results suggest that the constant hazard ratio interpretation may be an oversimplification for some molecular predictors, especially MSI. Therefore, sensitivity analyses were conducted to evaluate whether the main conclusions were robust to alternative modeling choices. 
+
+\subsection{Sensitivity Analyses}
+
+First, a time-varying MSI effect was evaluated by adding an interaction between MSI and $\log(t)$. This model allowed the association between MSI and hazard to change over follow-up time rather than forcing a constant hazard ratio. The time-varying MSI model improved AIC and C-index slightly. However, because the time-varying model is less straightforward to interpret, it was reported as a sensitivity analysis rather than selected as the primary model. \\
+
+\noindent
+Second, a subtype-stratified Cox model was evaluated. Stratifying by subtype allows each molecular subtype to have its own baseline hazard function. However, when subtype is used as a stratification variable, subtype itself no longer has a hazard ratio. Because subtype was one of the main predictors of scientific interest, the stratified model was treated as a diagnostic sensitivity analysis rather than the main model. \\
+
+\noindent
+Finally, aneuploidy score was re-evaluated as an additional molecular covariate. Although aneuploidy showed poorer unadjusted survival in EDA, it was not statistically significant after adjustment for age, grade, subtype, TMB, and MSI. It also did not improve the reduced final model. Therefore, aneuploidy was not retained in the primary model. 
+
+\section{Discussion and Conclusion}
+
+This project examined whether genomic instability measures independently predict overall survival in LGG after accounting for clinical factors and molecular subtype. Older age, Grade III tumors, IDH-wildtype subtype, and higher TMB quartiles were associated with increased hazard of death. Selected genomic instability measures, particularly TMB and MSI, provide modest additional prognostic information beyond established clinical and molecular predictors. The final model showed strong discrimination and improved information criteria compared with the clinical-only model, but external validation is needed before it can be interpreted as a reliable individual-level prediction tool.
+
+\subsection{Discussion}
+
+Molecular subtype was the dominant predictor in the final model. The unadjusted Kaplan--Meier curves and the adjusted Cox model gave consistent evidence that molecular subtype is central to LGG survival risk stratification. Tumor grade and age were also important clinical predictors. Among the genomic instability measures, TMB showed evidence of additional prognostic relevance. Quartile coding of TMB provided a more interpretable approach than forcing a linear continuous effect, but the very wide range in the highest quartile indicates that TMB remains difficult to model, and conclusions about TMB may depend on the chosen functional form. MSI score was associated with lower hazard in the primary model, but this finding should be interpreted cautiously. The PH diagnostics and the time-varying sensitivity analysis suggested that the MSI effect may not be constant over follow-up. Therefore, a more careful interpretation is that MSI appears to be related to survival, but its association with hazard may vary over time. Lastly, aneuploidy burden showed an apparent association with poorer survival in the EDA but was not retained in the final model. This suggests that aneuploidy may overlap with other tumor characteristics. Therefore, although it may be biologically relevant as a measure of chromosomal instability, it did not provide independent prognostic information in the final adjusted model.
+
+\subsection{Limitations}
+
+This analysis has several limitations. First, PH diagnostics suggested possible violations for MSI, TMB quartile, and subtype. This means that constant hazard ratio estimates may oversimplify the effects of these variables. Second, TMB was highly right-skewed. Although quartile coding improved interpretability, conclusions about TMB may depend on the chosen coding strategy. Finally, the model was evaluated internally. Thus, the results should be interpreted as evidence of prognostic associations and risk stratification, not as a fully validated clinical prediction tool.
+
+\subsection{Future Work}
+
+Future work could extend this analysis in several ways. First, the final Cox model should be validated in an independent LGG cohort to assess generalizability. External validation would help determine whether the model performs well beyond the TCGA dataset. Second, predictive performance could be evaluated using train-test splits or cross-validation. Finally, time-varying effects should be investigated further, especially for MSI and subtype. If the PH assumption is violated, models that allow effects to change over time may provide a more accurate description of survival patterns.  
+
+\paragraph{Acknowledgments and Code Availability} ChatGPT was used to support code debugging and the editing process for this report. The code used for this project is available at \url{https://github.com/lliu006/STAT218_Final_Project}.
+
+\bibliographystyle{unsrt}
+\bibliography{reference}
+
+\end{document}
